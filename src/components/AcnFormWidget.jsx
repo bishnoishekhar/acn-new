@@ -21,9 +21,7 @@ export default function AcnFormWidget({ payload, onSubmit }) {
       }
       if (f.validation?.pattern && val) {
         const re = new RegExp(f.validation.pattern);
-        if (!re.test(val)) {
-          newErrors[f.field_id] = f.validation.error_message || 'Invalid input.';
-        }
+        if (!re.test(val)) newErrors[f.field_id] = f.validation.error_message || 'Invalid input.';
       }
       if (f.validation?.min_length && val.length < f.validation.min_length) {
         newErrors[f.field_id] = f.validation.error_message || 'Too short.';
@@ -37,21 +35,14 @@ export default function AcnFormWidget({ payload, onSubmit }) {
     if (Object.keys(errs).length > 0) { setErrors(errs); return; }
     setSubmitted(true);
 
-    // Build submission value: prefix:value
     const parts = fields.map((f) => values[f.field_id] || '');
     const value = cta_value_prefix
       ? `${cta_value_prefix}:${parts.join('&')}`
       : parts.join(' ');
 
-    // Build display text — mask sensitive fields (tel/password/pin)
-    const displayParts = fields.map((f) => {
-      const v = values[f.field_id] || '';
-      if (f.type === 'tel' || f.type === 'password' || f.field_id === 'pin' || f.field_id === 'otp') {
-        return '•'.repeat(v.length);
-      }
-      return v;
-    });
-    const displayText = displayParts.join(' ');
+    // Build masked display — use dots for sensitive field types
+    const isSensitive = fields.some((f) => f.type === 'tel' || f.type === 'password');
+    const displayText = isSensitive ? '••••' : (parts.join(' '));
 
     onSubmit(value, displayText);
   };
