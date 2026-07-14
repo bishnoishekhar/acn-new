@@ -1,7 +1,7 @@
-export default function ComboCard({ heading, actions, onSelect }) {
+export default function ComboCard({ heading, actions, onSelect, compact = false }) {
   return (
-    <div className="acn-combo-card">
-      <div className="acn-combo-text">{heading}</div>
+    <div className={`acn-combo-card${compact ? ' compact' : ''}`}>
+      {heading && <div className="acn-combo-text">{heading}</div>}
       <div className="acn-combo-tiles">
         {actions.map((action, i) => (
           <button
@@ -10,7 +10,7 @@ export default function ComboCard({ heading, actions, onSelect }) {
             onClick={() => onSelect(action)}
           >
             <span className="acn-tile-title">{action.content || ''}</span>
-            {action.description && (
+            {action.description && !compact && (
               <span className="acn-tile-desc">{action.description}</span>
             )}
           </button>
