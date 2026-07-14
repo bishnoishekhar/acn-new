@@ -87,7 +87,7 @@ footer span{font-size:11px;color:#B0A0C8;}
 .acn-icon-btn:hover{background:#F5EEFF;color:#A100FF;}
 
 /* ── Messages ── */
-.acn-messages{flex:1;overflow-y:scroll;padding:14px 13px 20px;background:#F7F4FC;display:flex;flex-direction:column;gap:10px;min-height:0;scroll-behavior:smooth;height:0;}
+.acn-messages{flex:1;overflow-y:auto;padding:14px 13px 20px;background:#F7F4FC;display:flex;flex-direction:column;gap:10px;min-height:0;height:0;scroll-behavior:auto;}
 .acn-messages::-webkit-scrollbar{width:4px;}
 .acn-messages::-webkit-scrollbar-thumb{background:#D0B8F0;border-radius:4px;}
 
