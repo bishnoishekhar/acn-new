@@ -34,7 +34,9 @@ const isFH = (h) => {
   if (!h) return false;
   const l = h.toLowerCase();
   return l.startsWith('please type') || l.startsWith('please enter') ||
-         l.startsWith('type your') || l.startsWith('enter your');
+         l.startsWith('type your') || l.startsWith('enter your') ||
+         l.startsWith('or identify') || l.startsWith('or choose') ||
+         l.startsWith('or use a') || l.startsWith('choose a different');
 };
 
 export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
@@ -49,6 +51,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const respondingTimerRef = useRef(null);
+  const lastBotTextRef = useRef(null); // buffers last addBot text for cross-event showCombo heading
 
   /* ── Scroll ── */
   const scrollToBottom = useCallback(() => {
@@ -74,6 +77,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const addBot = useCallback((text) => {
     const clean = stripMarkdown(text);
     if (!clean) return;
+    lastBotTextRef.current = clean; // buffer for showCombo heading in next event
     setMessages((prev) => [...prev, { type: 'bot', text: clean, id: uid() }]);
   }, []);
 
@@ -89,6 +93,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     });
     // Safety: clear after 12s if agent never responds
     if (respondingTimerRef.current) clearTimeout(respondingTimerRef.current);
+    lastBotTextRef.current = null;
     respondingTimerRef.current = setTimeout(() => {
       setIsResponding(false);
       setMessages((prev) => prev.filter((m) => m.type !== 'typing'));
@@ -155,14 +160,22 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   /* ── Show combo card ──
      Absorbs last bot bubble as heading if no forcedHeading given ── */
   const showCombo = useCallback((actions, summary, forcedHeading, forcedSubtitle) => {
+    // Capture ref value now (before async setState)
+    const bufferedHeading = lastBotTextRef.current;
+    lastBotTextRef.current = null; // consume it
     setMessages((prev) => {
       if (!forcedHeading) {
+        // First try: absorb last bot bubble from state
         const li = [...prev].reverse().findIndex((m) => m.type === 'bot');
         if (li !== -1) {
           const ri = prev.length - 1 - li;
           const h = prev[ri].text;
           const without = prev.filter((_, i) => i !== ri);
           return [...without, { type: 'combo', heading: h, actions, id: uid(), compact: isFH(h) }];
+        }
+        // Second try: use buffered text from addBot in previous event (React batching fix)
+        if (bufferedHeading) {
+          return [...prev, { type: 'combo', heading: bufferedHeading, actions, id: uid(), compact: isFH(bufferedHeading) }];
         }
       }
       const h = forcedHeading || summary || 'How can I help?';
