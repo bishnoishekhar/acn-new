@@ -67,27 +67,37 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
   /* ── Parse Gemini 2.5 tool_code format ── */
   const parseToolCode = useCallback((text) => {
-    // Gemini 2.5 sometimes outputs: tool_code: print(default_api.quick_actions(...))
     if (!text.includes('tool_code') && !text.includes('default_api.quick_actions')) return null;
     try {
       const actions = [];
-      // Match content/description/utterance pattern
-      const re = /content='([^']+)'[^)]*description='([^']+)'[^)]*utterance='([^']+)'/g;
+      const contentRe = /['"]content['"]\s*:\s*(['"])((?:(?!\1).)*)\1/g;
       let m;
-      while ((m = re.exec(text)) !== null) {
-        actions.push({ content: m[1].trim(), description: m[2].trim(), utterance: m[3].trim() });
+      while ((m = contentRe.exec(text)) !== null) {
+        const content = m[2].trim();
+        const snippet = text.slice(m.index, m.index + 600);
+        const uttRe = /['"]utterance['"]\s*:\s*(['"])((?:(?!\1).)*)\1/;
+        const descRe = /['"]description['"]\s*:\s*(['"])((?:(?!\1).)*)\1/;
+        const uttM = snippet.match(uttRe);
+        const descM = snippet.match(descRe);
+        if (content && uttM) {
+          actions.push({ content, description: descM ? descM[2].trim() : '', utterance: uttM[2].trim() });
+        }
       }
-      // Also try double quotes
-      const re2 = /content="([^"]+)"[^)]*description="([^"]+)"[^)]*utterance="([^"]+)"/g;
-      while ((m = re2.exec(text)) !== null) {
-        actions.push({ content: m[1].trim(), description: m[2].trim(), utterance: m[3].trim() });
-      }
-      // Extract summary
-      const sumM = text.match(/summary=['"]([^'"]+)['"]/);
-      const summary = sumM ? sumM[1] : 'What can I help you with?';
+      const sumM = text.match(/['"]summary['"]\s*:\s*(['"])((?:(?!\1).)*)\1/);
+      const summary = sumM ? sumM[2].trim() : 'What can I help you with?';
       return actions.length > 0 ? { actions, summary } : null;
     } catch (e) { return null; }
   }, []);
+
+  /* ── Extract Say: lines from mixed text+tool_code block ── */
+  const extractSayLines = useCallback((text) => {
+    const lines = [];
+    const re = /Say:\s*["']([^"']+)["']/g;
+    let m;
+    while ((m = re.exec(text)) !== null) lines.push(m[1].trim());
+    return lines;
+  }, []);
+
   const showCombo = useCallback((actions, summary) => {
     setMessages((prev) => {
       const lastBotIdx = [...prev].reverse().findIndex((m) => m.type === 'bot');
@@ -107,12 +117,16 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     outputs.forEach((output) => {
       if (output.text) {
         const text = output.text;
-        /* Fallback: Gemini 2.5 tool_code format */
+
+        /* Gemini tool_code format — may include Say: lines before the tool_code block */
         const toolCode = parseToolCode(text);
         if (toolCode) {
+          const sayLines = extractSayLines(text);
+          sayLines.forEach((line) => addBot(line));
           showCombo(toolCode.actions, toolCode.summary);
           return;
         }
+
         /* Fallback: Gemini narrated quick_actions as raw text */
         if (text.includes('quick_actions') && text.includes('content:') && text.includes('utterance:')) {
           const actions = [];
@@ -125,6 +139,13 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           const summary = summaryM ? summaryM[1].trim() : 'What can I help you with?';
           if (actions.length > 0) { showCombo(actions, summary); return; }
         }
+
+        /* Skip narration_checkpoint */
+        if (text.includes('narration_checkpoint')) return;
+
+        /* Suppress any other tool_code leakage — never show raw tool calls to user */
+        if (text.includes('tool_code:')) return;
+
         addBot(text);
       }
       if (output.payload) {
@@ -137,7 +158,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         }
       }
     });
-  }, [removeTyping, addBot, showCombo]);
+  }, [removeTyping, addBot, showCombo, parseToolCode, extractSayLines]);
 
   /* ── Register response handler once ── */
   useEffect(() => {
