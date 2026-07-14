@@ -29,14 +29,14 @@ function BotText({ text }) {
 let _idCounter = 0;
 const uid = () => ++_idCounter;
 
-// Returns true if heading indicates user needs to type (compact fallback tiles)
+// Headings that mean "user must type something — show fallback tiles compact"
 const isFH = (h) => {
   if (!h) return false;
   const l = h.toLowerCase();
   return l.startsWith('please type') || l.startsWith('please enter') ||
-         l.startsWith('type your') || l.startsWith('enter your') ||
-         l.startsWith('or identify') || l.startsWith('or choose') ||
-         l.startsWith('or use a') || l.startsWith('choose a different');
+         l.startsWith('type your')   || l.startsWith('enter your')   ||
+         l.startsWith('or identify') || l.startsWith('or choose')    ||
+         l.startsWith('or use a')    || l.startsWith('choose a different');
 };
 
 export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
@@ -51,7 +51,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
   const respondingTimerRef = useRef(null);
-  const lastBotTextRef = useRef(null); // buffers last addBot text for cross-event showCombo heading
+  // Tracks the last combo card id created this turn — for retroactive heading fix
+  const lastComboIdRef = useRef(null);
 
   /* ── Scroll ── */
   const scrollToBottom = useCallback(() => {
@@ -77,8 +78,29 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const addBot = useCallback((text) => {
     const clean = stripMarkdown(text);
     if (!clean) return;
-    lastBotTextRef.current = clean; // buffer for showCombo heading in next event
-    setMessages((prev) => [...prev, { type: 'bot', text: clean, id: uid() }]);
+
+    setMessages((prev) => {
+      // Retroactive heading fix: if a combo card was just created this turn
+      // with a summary/fallback heading, and this bot text is the real heading — swap it
+      if (lastComboIdRef.current) {
+        const lastCombo = prev.find((m) => m.type === 'combo' && m.id === lastComboIdRef.current);
+        if (lastCombo && isFH(clean)) {
+          // Bot text IS a fallback heading — update the combo heading
+          lastComboIdRef.current = null;
+          return prev.map((m) =>
+            m.id === lastCombo.id
+              ? { ...m, heading: clean, compact: true }
+              : m
+          );
+        }
+        if (lastCombo) {
+          // Bot text arrived after combo — just show as bubble, don't replace heading
+          lastComboIdRef.current = null;
+          return [...prev, { type: 'bot', text: clean, id: uid() }];
+        }
+      }
+      return [...prev, { type: 'bot', text: clean, id: uid() }];
+    });
   }, []);
 
   const addUser = useCallback((text) => {
@@ -86,14 +108,13 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   const showTyping = useCallback(() => {
+    lastComboIdRef.current = null; // new user turn — reset
     setIsResponding(true);
     setMessages((prev) => {
       const f = prev.filter((m) => m.type !== 'typing');
       return [...f, { type: 'typing', id: uid() }];
     });
-    // Safety: clear after 12s if agent never responds
     if (respondingTimerRef.current) clearTimeout(respondingTimerRef.current);
-    lastBotTextRef.current = null;
     respondingTimerRef.current = setTimeout(() => {
       setIsResponding(false);
       setMessages((prev) => prev.filter((m) => m.type !== 'typing'));
@@ -107,42 +128,27 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   /* ── Parse tool_code quick_actions ──
-     Handles: 'key':'val', key='val', "I'm" apostrophes, Safari-safe ── */
+     Handles: dict 'key':'val', kwargs key='val',
+     apostrophes "I'm a new customer", Safari-safe ── */
   const parseToolCode = useCallback((text) => {
     if (!text.includes('tool_code') && !text.includes('default_api.quick_actions')) return null;
     try {
       const actions = [];
-
-      // fv: find value for key — tries double-quote first (handles apostrophes), then single
       const fv = (str, key) => {
         const QK = "['\"]" + key + "['\"]";
         let m;
-        // 'key': "value"  or  'key'="value"
-        m = str.match(new RegExp(QK + '\\s*[=:]\\s*"([^"]*)"'));
-        if (m) return m[1];
-        // 'key': 'value'  or  'key'='value'
-        m = str.match(new RegExp(QK + "\\s*[=:]\\s*'([^']*)'"));
-        if (m) return m[1];
-        // kwargs: key='value'  (unquoted key)
-        m = str.match(new RegExp('\\b' + key + "\\s*=\\s*'([^']*)'"));
-        if (m) return m[1];
-        // kwargs: key="value"
-        m = str.match(new RegExp('\\b' + key + '\\s*=\\s*"([^"]*)"'));
-        if (m) return m[1];
+        m = str.match(new RegExp(QK + '\\s*[=:]\\s*"([^"]*)"'));   if (m) return m[1];
+        m = str.match(new RegExp(QK + "\\s*[=:]\\s*'([^']*)'"));   if (m) return m[1];
+        m = str.match(new RegExp('\\b' + key + "\\s*=\\s*'([^']*)'"));  if (m) return m[1];
+        m = str.match(new RegExp('\\b' + key + '\\s*=\\s*"([^"]*)"')); if (m) return m[1];
         return null;
       };
-
-      // Split into per-action chunks — Safari-safe (no lookbehind)
       const marked = text.replace(/\{(\s*['"]?content['"]?\s*[=:])/g, '\x00{$1');
       const parts = marked.split(/QuickActionsPayloadActions\s*\(|\x00/);
-
       parts.forEach((part) => {
-        const c = fv(part, 'content');
-        const u = fv(part, 'utterance');
-        const d = fv(part, 'description');
+        const c = fv(part, 'content'), u = fv(part, 'utterance'), d = fv(part, 'description');
         if (c && u) actions.push({ content: c.trim(), description: d ? d.trim() : '', utterance: u.trim() });
       });
-
       const sum = fv(text, 'summary');
       return actions.length > 0 ? { actions, summary: sum ? sum.trim() : 'What can I help you with?' } : null;
     } catch (e) { return null; }
@@ -158,38 +164,35 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   /* ── Show combo card ──
-     Absorbs last bot bubble as heading if no forcedHeading given ── */
+     Uses last bot bubble from state as heading.
+     Falls back to summary if no bot bubble found. ── */
   const showCombo = useCallback((actions, summary, forcedHeading, forcedSubtitle) => {
-    // Capture ref value now (before async setState)
-    const bufferedHeading = lastBotTextRef.current;
-    lastBotTextRef.current = null; // consume it
+    const comboId = uid();
     setMessages((prev) => {
       if (!forcedHeading) {
-        // First try: absorb last bot bubble from state
+        // Absorb last bot bubble from state as heading
         const li = [...prev].reverse().findIndex((m) => m.type === 'bot');
         if (li !== -1) {
           const ri = prev.length - 1 - li;
           const h = prev[ri].text;
           const without = prev.filter((_, i) => i !== ri);
-          return [...without, { type: 'combo', heading: h, actions, id: uid(), compact: isFH(h) }];
-        }
-        // Second try: use buffered text from addBot in previous event (React batching fix)
-        if (bufferedHeading) {
-          return [...prev, { type: 'combo', heading: bufferedHeading, actions, id: uid(), compact: isFH(bufferedHeading) }];
+          lastComboIdRef.current = null; // absorbed from state — no retroactive fix needed
+          return [...without, { type: 'combo', heading: h, actions, id: comboId, compact: isFH(h) }];
         }
       }
+      // No bot bubble in state — use summary and mark for retroactive fix
+      // (bot text may arrive in next processOutputs call)
       const h = forcedHeading || summary || 'How can I help?';
-      return [...prev, { type: 'combo', heading: h, subtitle: forcedSubtitle, actions, id: uid(), compact: isFH(h) }];
+      lastComboIdRef.current = comboId; // allow addBot to fix heading if text arrives after
+      return [...prev, { type: 'combo', heading: h, subtitle: forcedSubtitle, actions, id: comboId, compact: isFH(h) }];
     });
   }, []);
 
   /* ── Process GECX outputs ──
-     Key rules:
-     1. Skip entirely if no visible content (intermediate tool responses)
-     2. Process TEXT first so bot bubbles exist before payload showCombo runs
-     3. Then process PAYLOAD — showCombo finds the correct heading bubble ── */
+     1. Skip intermediate tool responses (keep typing indicator)
+     2. Text pass first — bot bubbles exist before showCombo runs
+     3. Payload pass second — showCombo absorbs correct heading ── */
   const processOutputs = useCallback((outputs) => {
-    // Check if there is any visible content worth showing
     const hasVisible = outputs.some((o) => {
       if (o.payload) {
         return o.payload.type === 'quick_actions' ||
@@ -205,22 +208,20 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       return stripMarkdown(t).length > 0;
     });
 
-    // Intermediate tool response (queryCustomers, orchestrate_lookup etc) — keep typing
-    if (!hasVisible) return;
+    if (!hasVisible) return; // intermediate tool call — keep typing indicator
 
     removeTyping();
 
-    // Pass 1: text outputs — renders bot bubbles BEFORE combo cards
+    // Pass 1: text — renders bot bubbles before payload showCombo runs
     outputs.forEach((output) => {
       if (!output.text) return;
       const text = output.text;
 
-      // tool_code quick_actions
       const tc = parseToolCode(text);
       if (tc) {
         const sl = extractSayLines(text);
         if (sl.length >= 2) {
-          // Welcome card: first Say = heading, second Say = subtitle inside card
+          // Welcome: first Say = heading, second Say = subtitle inside card
           setMessages((prev) => [...prev, {
             type: 'combo', heading: sl[0], subtitle: sl[1],
             actions: tc.actions, id: uid(), compact: isFH(sl[0])
@@ -236,7 +237,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return;
       }
 
-      // Narrated quick_actions fallback (older format)
+      // Narrated quick_actions fallback (older text format)
       if (text.includes('quick_actions') && text.includes('content:') && text.includes('utterance:')) {
         const acts = [];
         const re = /content:\s*["']?([^,}"'\n]+?)["']?\s*,\s*description:\s*["']?([^,}"'\n]+?)["']?\s*,\s*utterance:\s*["']?([^}"'\n\]]+?)["']?\s*\}/g;
@@ -248,22 +249,18 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         if (acts.length > 0) { showCombo(acts, sm ? sm[1].trim() : 'What can I help you with?'); return; }
       }
 
-      // Suppress internal signals
       if (text.includes('narration_checkpoint') || text.includes('tool_code:')) return;
 
       addBot(text);
     });
 
-    // Pass 2: payload outputs — bot bubbles from Pass 1 are now in state
+    // Pass 2: payload — bot bubbles from Pass 1 now committed to state
     outputs.forEach((output) => {
       if (!output.payload) return;
       const p = output.payload;
-      if (p.type === 'quick_actions' && p.actions) {
-        showCombo(p.actions, p.summary);
-      }
+      if (p.type === 'quick_actions' && p.actions) showCombo(p.actions, p.summary);
       if (p.name === 'acn-form-input' && p.fields) {
         setActiveForm({ payload: p, id: uid() });
-        // Existing combo cards become compact fallback tiles
         setMessages((prev) => prev.map((m) => m.type === 'combo' ? { ...m, compact: true } : m));
       }
       if (p.name === 'acn-payment-carousel') setCarousel(p);
@@ -299,7 +296,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
   const handleFormSubmit = useCallback((value, displayText) => {
     setActiveForm(null);
-    // displayText is pre-masked by AcnFormWidget (e.g. "••••" for PIN/OTP)
     addUser(displayText || value.split(':').slice(1).join(':') || value);
     showTyping();
     gecxSend(value);
@@ -321,6 +317,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     setSessionStarted(false);
     setInputVal('');
     setIsResponding(false);
+    lastComboIdRef.current = null;
     if (respondingTimerRef.current) clearTimeout(respondingTimerRef.current);
     resetGecx();
     setTimeout(() => showTyping(), 600);
@@ -362,7 +359,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   /* ── Render ── */
   return (
     <>
-      {/* Hidden GECX messenger */}
       <div style={{ position: 'fixed', bottom: 0, right: 0, visibility: 'hidden', height: 0, width: 0 }}>
         <chat-messenger
           id="gecx-messenger"
@@ -377,10 +373,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         </chat-messenger>
       </div>
 
-      {/* Chat window */}
       <div className={`acn-chat-window${isOpen ? '' : ' closed'}`}>
 
-        {/* Header */}
         <div className="acn-chat-header">
           <div className="acn-chat-avatar">A</div>
           <div style={{ flex: 1 }}>
@@ -401,7 +395,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           </div>
         </div>
 
-        {/* Messages */}
         <div className="acn-messages" ref={msgsRef}>
           {messages.map((msg, idx) => {
             const isConsBot = msg.type === 'bot' && messages[idx - 1]?.type === 'bot';
@@ -440,7 +433,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           })}
         </div>
 
-        {/* PIN / OTP form widget — above input bar */}
         {activeForm && (
           <div style={{ padding: '0 12px 8px', borderTop: '1px solid #EBEBEB', background: '#fff' }}>
             <AcnFormWidget
@@ -451,19 +443,13 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           </div>
         )}
 
-        {/* Input bar */}
         <div className="acn-input-bar">
-          <button
-            className="acn-input-icon-btn"
-            title="Attach file"
-            onClick={() => document.getElementById('acn-file-input').click()}
-          >
+          <button className="acn-input-icon-btn" title="Attach file" onClick={() => document.getElementById('acn-file-input').click()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/>
             </svg>
           </button>
           <input id="acn-file-input" type="file" style={{ display: 'none' }} onChange={handleFileUpload} />
-
           <input
             ref={inputRef}
             className="acn-input"
@@ -475,13 +461,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
             disabled={isResponding}
           />
-
-          <button
-            className={`acn-input-icon-btn${voiceActive ? ' active' : ''}`}
-            title="Voice input"
-            onClick={toggleVoice}
-            disabled={isResponding}
-          >
+          <button className={`acn-input-icon-btn${voiceActive ? ' active' : ''}`} title="Voice input" onClick={toggleVoice} disabled={isResponding}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
               <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
@@ -489,12 +469,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
               <line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
           </button>
-
-          <button
-            className={`acn-send-btn${isResponding ? ' disabled' : ''}`}
-            onClick={sendMessage}
-            disabled={isResponding}
-          >
+          <button className={`acn-send-btn${isResponding ? ' disabled' : ''}`} onClick={sendMessage} disabled={isResponding}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"/>
               <polygon points="22 2 15 22 11 13 2 9 22 2"/>
@@ -503,13 +478,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         </div>
       </div>
 
-      {/* Carousel overlay */}
       {carousel && (
-        <Carousel
-          data={carousel}
-          onCta={handleCarouselCta}
-          onClose={() => setCarousel(null)}
-        />
+        <Carousel data={carousel} onCta={handleCarouselCta} onClose={() => setCarousel(null)} />
       )}
     </>
   );
