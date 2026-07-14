@@ -117,6 +117,13 @@ footer span{font-size:11px;color:#B0A0C8;}
 .acn-tile-title{font-size:14px;font-weight:700;color:#140025;display:block;margin-bottom:3px;line-height:1.3;}
 .acn-tile-desc{font-size:12.5px;color:#6E6E80;display:block;line-height:1.4;}
 
+/* ── Compact fallback tiles (secondary options shown alongside a primary ask) ── */
+.acn-combo-card.compact .acn-combo-text{padding:10px 14px 6px;font-size:12.5px;font-weight:500;color:#6B5B8A;}
+.acn-combo-card.compact .acn-combo-tiles{padding:2px 10px 10px;display:flex;flex-direction:column;gap:5px;}
+.acn-combo-card.compact .acn-tile{padding:8px 12px;border-radius:8px;margin-bottom:0;}
+.acn-combo-card.compact .acn-tile-title{font-size:13px;font-weight:600;margin-bottom:1px;}
+.acn-combo-card.compact .acn-tile-desc{font-size:11.5px;}
+
 /* ── Input bar ── */
 .acn-input-bar{background:#fff;border-top:1px solid #EBEBEB;padding:10px 12px;display:flex;align-items:center;gap:6px;flex-shrink:0;}
 .acn-input{flex:1;background:#F4F1F9;border:1px solid #E8E3F0;border-radius:20px;padding:10px 15px;font-size:13.5px;font-family:'DM Sans',-apple-system,sans-serif;color:#140025;outline:none;transition:border-color .15s,background .15s;}
