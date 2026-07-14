@@ -11,9 +11,20 @@ function stripMarkdown(text) {
     .trim();
 }
 
-/* ── Message types ── */
-// { type: 'user' | 'bot' | 'typing', text, id }
-// { type: 'combo', heading, actions, id }
+/* ── Render text with line breaks ── */
+function BotText({ text }) {
+  const lines = text.split('\n').filter(Boolean);
+  if (lines.length <= 1) return <>{text}</>;
+  return (
+    <>
+      {lines.map((line, i) => (
+        <span key={i} style={{ display: 'block', marginBottom: i < lines.length - 1 ? '6px' : 0 }}>
+          {line}
+        </span>
+      ))}
+    </>
+  );
+}
 
 let _idCounter = 0;
 const uid = () => ++_idCounter;
@@ -24,23 +35,23 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const [carousel, setCarousel] = useState(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
+  const [isResponding, setIsResponding] = useState(false);
   const msgsRef = useRef(null);
   const inputRef = useRef(null);
   const recognitionRef = useRef(null);
 
   /* ── Scroll to bottom ── */
-  const scrollToBottom = useCallback(() => {
+  const scrollToBottom = useCallback((behavior = 'smooth') => {
     requestAnimationFrame(() => {
       if (msgsRef.current) {
-        msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
+        msgsRef.current.scrollTo({ top: msgsRef.current.scrollHeight, behavior });
       }
     });
-    // Double-fire after 100ms for late-rendering tiles
     setTimeout(() => {
       if (msgsRef.current) {
-        msgsRef.current.scrollTop = msgsRef.current.scrollHeight;
+        msgsRef.current.scrollTo({ top: msgsRef.current.scrollHeight, behavior: 'smooth' });
       }
-    }, 100);
+    }, 150);
   }, []);
 
   /* ── Add messages ── */
@@ -55,6 +66,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   const showTyping = useCallback(() => {
+    setIsResponding(true);
     setMessages((prev) => {
       const filtered = prev.filter((m) => m.type !== 'typing');
       return [...filtered, { type: 'typing', id: uid() }];
@@ -62,6 +74,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   const removeTyping = useCallback(() => {
+    setIsResponding(false);
     setMessages((prev) => prev.filter((m) => m.type !== 'typing'));
   }, []);
 
@@ -89,26 +102,26 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     } catch (e) { return null; }
   }, []);
 
-  /* ── Extract Say: lines from mixed text+tool_code block ── */
+  /* ── Extract Say: lines ── */
   const extractSayLines = useCallback((text) => {
     const lines = [];
-    // Match Say: "..." or Say: '...' allowing apostrophes inside by finding closing quote before tool_code or next Say:
     const re = /Say:\s*["'](.*?)["'](?=\s*(?:Say:|tool_code:|$))/gs;
     let m;
     while ((m = re.exec(text)) !== null) lines.push(m[1].trim());
     return lines;
   }, []);
 
-  const showCombo = useCallback((actions, summary) => {
+  const showCombo = useCallback((actions, summary, heading) => {
     setMessages((prev) => {
+      // If there's a recent bot bubble, absorb it as the heading
       const lastBotIdx = [...prev].reverse().findIndex((m) => m.type === 'bot');
-      if (lastBotIdx !== -1) {
+      if (!heading && lastBotIdx !== -1) {
         const realIdx = prev.length - 1 - lastBotIdx;
-        const heading = prev[realIdx].text;
+        const h = prev[realIdx].text;
         const without = prev.filter((_, i) => i !== realIdx);
-        return [...without, { type: 'combo', heading, actions, id: uid() }];
+        return [...without, { type: 'combo', heading: h, actions, id: uid() }];
       }
-      return [...prev, { type: 'combo', heading: summary || 'How would you like to proceed?', actions, id: uid() }];
+      return [...prev, { type: 'combo', heading: heading || summary || 'How can I help?', actions, id: uid() }];
     });
   }, []);
 
@@ -119,14 +132,14 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       if (output.text) {
         const text = output.text;
 
-        /* Gemini tool_code format — may include Say: lines before the tool_code block */
+        /* Gemini tool_code + quick_actions */
         const toolCode = parseToolCode(text);
         if (toolCode) {
           const sayLines = extractSayLines(text);
-          // Use first Say: line as combo heading so welcome + tiles stay together
-          // Render any additional Say: lines as separate bubbles
           if (sayLines.length > 0) {
+            // Additional Say: lines (index 1+) become bot bubbles above
             sayLines.slice(1).forEach((line) => addBot(line));
+            // First Say: line becomes the combo heading
             setMessages((prev) => [
               ...prev,
               { type: 'combo', heading: sayLines[0], actions: toolCode.actions, id: uid() }
@@ -137,7 +150,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           return;
         }
 
-        /* Fallback: Gemini narrated quick_actions as raw text */
+        /* Narrated quick_actions fallback */
         if (text.includes('quick_actions') && text.includes('content:') && text.includes('utterance:')) {
           const actions = [];
           const re = /content:\s*["']?([^,}"'\n]+?)["']?\s*,\s*description:\s*["']?([^,}"'\n]+?)["']?\s*,\s*utterance:\s*["']?([^}"'\n\]]+?)["']?\s*\}/g;
@@ -150,14 +163,13 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           if (actions.length > 0) { showCombo(actions, summary); return; }
         }
 
-        /* Skip narration_checkpoint */
+        /* Suppress internal signals */
         if (text.includes('narration_checkpoint')) return;
-
-        /* Suppress any other tool_code leakage — never show raw tool calls to user */
         if (text.includes('tool_code:')) return;
 
         addBot(text);
       }
+
       if (output.payload) {
         const p = output.payload;
         if (p.type === 'quick_actions' && p.actions) {
@@ -170,21 +182,20 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     });
   }, [removeTyping, addBot, showCombo, parseToolCode, extractSayLines]);
 
-  /* ── Register response handler once ── */
+  /* ── Register response handler ── */
   useEffect(() => {
     setResponseHandler(processOutputs);
   }, [processOutputs]);
 
-  /* ── Scroll after every message change ── */
+  /* ── Scroll on new messages ── */
   useEffect(() => {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
-  /* ── Start session when chat opens ── */
+  /* ── Start session ── */
   useEffect(() => {
     if (!isOpen) return;
     if (intent) {
-      // Opened from a product card with a pre-set intent
       setTimeout(() => {
         addUser(intent);
         showTyping();
@@ -200,36 +211,35 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
   /* ── Tile selected ── */
   const handleTileSelect = useCallback((action, comboId) => {
-    // Remove the combo card
     setMessages((prev) => prev.filter((m) => m.id !== comboId));
     addUser(action.content || action.utterance);
     showTyping();
     gecxSend(action.utterance || action.content);
   }, [addUser, showTyping]);
 
-  /* ── Send typed message ── */
+  /* ── Send message ── */
   const sendMessage = useCallback(() => {
     const text = inputVal.trim();
-    if (!text) return;
+    if (!text || isResponding) return;
     setInputVal('');
     addUser(text);
     showTyping();
     gecxSend(text);
-  }, [inputVal, addUser, showTyping]);
+  }, [inputVal, addUser, showTyping, isResponding]);
 
-  /* ── Reset conversation ── */
+  /* ── Reset ── */
   const handleReset = useCallback(() => {
     setMessages([]);
     setCarousel(null);
     setSessionStarted(false);
     setInputVal('');
+    setIsResponding(false);
     resetGecx();
-    // Show typing after short delay to let session reset propagate
     setTimeout(() => showTyping(), 600);
     onReset?.();
   }, [showTyping, onReset]);
 
-  /* ── Voice input ── */
+  /* ── Voice ── */
   const toggleVoice = useCallback(() => {
     if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
       alert('Voice input not supported in this browser.');
@@ -297,8 +307,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           <div style={{ flex: 1 }}>
             <div className="acn-chat-title">ACN Bank AI</div>
             <div className="acn-chat-status">
-              <div className="acn-chat-status-dot" />
-              Online &middot; Responding now
+              <div className={`acn-chat-status-dot${isResponding ? ' responding' : ''}`} />
+              {isResponding ? 'Responding now' : 'Online · Ready'}
             </div>
           </div>
           <div className="acn-chat-header-btns">
@@ -314,12 +324,26 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
         {/* Messages */}
         <div className="acn-messages" ref={msgsRef}>
-          {messages.map((msg) => {
+          {messages.map((msg, idx) => {
+            const prevMsg = messages[idx - 1];
+            const isConsecutiveBot = msg.type === 'bot' && prevMsg?.type === 'bot';
+
             if (msg.type === 'bot') {
-              return <div key={msg.id} className="acn-bot-bubble">{msg.text}</div>;
+              return (
+                <div
+                  key={msg.id}
+                  className={`acn-bot-bubble acn-msg-enter${isConsecutiveBot ? ' acn-bot-consecutive' : ''}`}
+                >
+                  <BotText text={msg.text} />
+                </div>
+              );
             }
             if (msg.type === 'user') {
-              return <div key={msg.id} className="acn-user-bubble">{msg.text}</div>;
+              return (
+                <div key={msg.id} className="acn-user-bubble acn-msg-enter">
+                  {msg.text}
+                </div>
+              );
             }
             if (msg.type === 'typing') {
               return (
@@ -359,17 +383,19 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
             ref={inputRef}
             className="acn-input"
             type="text"
-            placeholder="Ask something..."
+            placeholder="Type a message or select an option..."
             autoComplete="off"
             value={inputVal}
             onChange={(e) => setInputVal(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && sendMessage()}
+            disabled={isResponding}
           />
 
           <button
             className={`acn-input-icon-btn${voiceActive ? ' active' : ''}`}
             title="Voice input"
             onClick={toggleVoice}
+            disabled={isResponding}
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
@@ -379,7 +405,11 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
             </svg>
           </button>
 
-          <button className="acn-send-btn" onClick={sendMessage}>
+          <button
+            className={`acn-send-btn${isResponding ? ' disabled' : ''}`}
+            onClick={sendMessage}
+            disabled={isResponding}
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="22" y1="2" x2="11" y2="13"/>
               <polygon points="22 2 15 22 11 13 2 9 22 2"/>
