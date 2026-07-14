@@ -73,6 +73,11 @@ footer{padding:18px 6%;border-top:1px solid #EDE5F8;display:flex;justify-content
 footer span{font-size:11px;color:#B0A0C8;}
 
 /* ── Chat Window ── */
+/* ── CSS isolation — prevent bank website styles bleeding into chat widget ── */
+.acn-chat-window a{color:inherit !important;text-decoration:none !important;}
+.acn-chat-window p{margin:0;padding:0;}
+.acn-chat-window span{color:inherit;}
+
 .acn-chat-window{position:fixed;bottom:24px;right:24px;width:420px;height:76vh;max-height:740px;min-height:500px;background:#fff;border-radius:20px;box-shadow:0 8px 48px rgba(161,0,255,.18),0 2px 16px rgba(0,0,0,.08);display:flex;flex-direction:column;overflow:hidden;z-index:10000;font-family:'DM Sans',-apple-system,sans-serif;transition:opacity .2s,transform .2s;}
 .acn-chat-window.closed{opacity:0;pointer-events:none;transform:translateY(16px);}
 .acn-chat-header{background:#fff;border-bottom:1px solid #EBEBEB;padding:12px 15px;display:flex;align-items:center;gap:10px;flex-shrink:0;}
@@ -96,7 +101,7 @@ footer span{font-size:11px;color:#B0A0C8;}
 .acn-msg-enter{animation:acnMsgIn .22s ease forwards;}
 
 /* ── Bubbles ── */
-.acn-bot-bubble{background:#fff;border:1px solid #EBEBEB;border-top:3px solid #A100FF;border-radius:4px 18px 18px 18px;padding:15px 17px;font-size:14px;font-weight:500;color:#140025;line-height:1.65;max-width:94%;align-self:flex-start;}
+.acn-bot-bubble{background:#fff;border:1px solid #EBEBEB;border-top:3px solid #A100FF;border-radius:4px 18px 18px 18px;padding:15px 17px;font-size:14px;font-weight:500;color:#140025 !important;line-height:1.65;max-width:94%;align-self:flex-start;}
 .acn-bot-consecutive{border-top:1px solid #EBEBEB;border-radius:18px;margin-top:-4px;}
 .acn-user-bubble{background:#A100FF;color:#fff;border-radius:18px 4px 18px 18px;padding:11px 16px;font-size:14px;font-weight:500;line-height:1.5;max-width:80%;align-self:flex-end;box-shadow:0 2px 12px rgba(161,0,255,.3);}
 
@@ -114,8 +119,8 @@ footer span{font-size:11px;color:#B0A0C8;}
 .acn-tile{background:#fff;border:1px solid #EBEBEB;border-radius:10px;padding:10px 14px;margin-bottom:6px;cursor:pointer;display:block;width:100%;text-align:left;transition:border-color .18s,background .18s;}
 .acn-tile:last-child{margin-bottom:0;}
 .acn-tile:hover{border-color:#C070FF;background:#FDFAFF;}
-.acn-tile-title{font-size:13.5px;font-weight:700;color:#140025;display:block;margin-bottom:2px;line-height:1.3;}
-.acn-tile-desc{font-size:12px;color:#6E6E80;display:block;line-height:1.35;}
+.acn-tile-title{font-size:13.5px;font-weight:700;color:#140025 !important;display:block;margin-bottom:2px;line-height:1.3;}
+.acn-tile-desc{font-size:12px;color:#6E6E80 !important;display:block;line-height:1.35;}
 
 /* ── Compact fallback tiles (secondary options shown alongside a primary ask) ── */
 .acn-combo-card.compact .acn-combo-text{padding:12px 15px 6px;font-size:14px;font-weight:600;color:#140025;}
