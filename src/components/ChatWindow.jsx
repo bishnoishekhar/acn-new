@@ -89,7 +89,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     if (!clean) return;
 
     // Split on newline — first line = heading, rest = subtitle
-    // e.g. "👋 Welcome to ACN Bank!\nYour time matters..." → heading + subtitle
     const lines = clean.split('\n').filter(Boolean);
     const firstLine = lines[0];
     const restLines = lines.slice(1).join(' ');
@@ -132,10 +131,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   // clearTypingBubble: removes dots, re-shows them after 300ms
-  // Keeps isResponding=true — agent is still processing between LLM turns
   const clearTypingBubble = useCallback(() => {
     setMessages((prev) => prev.filter((m) => m.type !== 'typing'));
-    // Re-show typing dots so user sees agent is still working
     setTimeout(() => {
       setMessages((prev) => {
         if (!prev.some((m) => m.type === 'typing')) {
@@ -144,7 +141,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return prev;
       });
     }, 300);
-    // Safety: if no combo/form arrives within 10s, release input anyway
     if (finalTimerRef.current) clearTimeout(finalTimerRef.current);
     finalTimerRef.current = setTimeout(() => {
       setIsResponding(false);
@@ -152,8 +148,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     }, 10000);
   }, []);
 
-  /* ── Parse tool_code quick_actions ──
-     Handles dict 'key':'val', kwargs key='val', apostrophes, Safari-safe ── */
+  /* ── Parse tool_code quick_actions ── */
   const parseToolCode = useCallback((text) => {
     if (!text.includes('tool_code') && !text.includes('default_api.quick_actions')) return null;
     try {
@@ -178,7 +173,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     } catch (e) { return null; }
   }, []);
 
-  /* ── Extract Say: lines (supports ' " ` quotes) ── */
+  /* ── Extract Say: lines ── */
   const extractSayLines = useCallback((text) => {
     const lines = [];
     const re = /Say:\s*["`'](.*?)["`'](?=\s*(?:Say:|tool_code:|$))/gs;
@@ -187,13 +182,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     return lines;
   }, []);
 
-  /* ── Show combo card ──
-     Heading priority:
-     1. forcedHeading (from Say: line in tool_code path)
-     2. pendingHeadingRef — set by addBot, bypasses React batching
-     3. last bot bubble in committed state
-     4. summary string
-     Dedup: comboCreatedRef prevents duplicate when both text and payload fire ── */
+  /* ── Show combo card ── */
   const showCombo = useCallback((actions, summary, forcedHeading, forcedSubtitle) => {
     const pending = pendingHeadingRef.current;
     const pendingSub = pendingSubtitleRef.current;
@@ -202,7 +191,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
     console.log('[ACN] showCombo — pending:', pending?.slice(0, 50), '| sub:', pendingSub?.slice(0, 30), '| comboCreated:', comboCreatedRef.current);
 
-    // Prevent duplicate combo when tool_code text path already created one
     if (comboCreatedRef.current && !forcedHeading) {
       console.log('[ACN] showCombo skipped — duplicate prevention');
       return;
@@ -214,9 +202,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return [...prev, { type: 'combo', heading: forcedHeading, subtitle: forcedSubtitle, actions, id: uid(), compact: isFH(forcedHeading) }];
       }
 
-      // Use pending refs (synchronous — bypasses React batching)
       if (pending) {
-        // Remove matching bot bubble from state to avoid duplicate text display
         const li = [...prev].reverse().findIndex((m) => m.type === 'bot' && m.text.startsWith(pending));
         if (li !== -1) {
           const ri = prev.length - 1 - li;
@@ -226,12 +212,10 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return [...prev, { type: 'combo', heading: pending, subtitle: pendingSub, actions, id: uid(), compact: isFH(pending) }];
       }
 
-      // Absorb last bot bubble from committed state
       const li = [...prev].reverse().findIndex((m) => m.type === 'bot');
       if (li !== -1) {
         const ri = prev.length - 1 - li;
         const h = prev[ri].text;
-        // If multiline bot bubble, split into heading/subtitle
         const hLines = h.split('\n').filter(Boolean);
         const heading = hLines[0];
         const subtitle = hLines.slice(1).join(' ') || undefined;
@@ -239,16 +223,12 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return [...without, { type: 'combo', heading, subtitle, actions, id: uid(), compact: isFH(heading) }];
       }
 
-      // Final fallback
       const h = summary || 'What can I help you with?';
       return [...prev, { type: 'combo', heading: h, actions, id: uid(), compact: isFH(h) }];
     });
   }, []);
 
-  /* ── Process GECX outputs ──
-     1. Skip if no visible content (intermediate tool calls — keep typing)
-     2. Text pass first — sets pending refs, renders bot bubbles
-     3. Payload pass second — showCombo reads pending refs ── */
+  /* ── Process GECX outputs ── */
   const processOutputs = useCallback((outputs) => {
     const hasVisible = outputs.some((o) => {
       if (o.payload) {
@@ -271,17 +251,15 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       : 'other'
     ));
 
-    // Determine if this response is truly final (has actionable widget)
-    // or just an interim text message (agent still processing)
     const hasFinalWidget = outputs.some((o) => o.payload && (
       o.payload.type === 'quick_actions' ||
       o.payload.name === 'acn-form-input' ||
       o.payload.name === 'acn-payment-carousel'
     ));
     if (hasFinalWidget) {
-      removeTyping(); // clears isResponding — agent is done
+      removeTyping();
     } else {
-      clearTypingBubble(); // keeps isResponding=true — agent still processing
+      clearTypingBubble();
     }
 
     // Pass 1: text
@@ -289,7 +267,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       if (!output.text) return;
       const text = output.text;
 
-      // tool_code quick_actions (fallback path — agent ignored TOOL CALL EXECUTION RULE)
       const tc = parseToolCode(text);
       if (tc) {
         const sl = extractSayLines(text);
@@ -311,7 +288,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         return;
       }
 
-      // Narrated quick_actions text (very old fallback)
       if (text.includes('quick_actions') && text.includes('content:') && text.includes('utterance:')) {
         const acts = [];
         const re = /content:\s*["']?([^,}"'\n]+?)["']?\s*,\s*description:\s*["']?([^,}"'\n]+?)["']?\s*,\s*utterance:\s*["']?([^}"'\n\]]+?)["']?\s*\}/g;
@@ -503,6 +479,10 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
           </div>
         )}
 
+        {carousel && (
+          <Carousel data={carousel} onCta={handleCarouselCta} onClose={() => setCarousel(null)} />
+        )}
+
         <div className="acn-input-bar">
           <button className="acn-input-icon-btn" title="Attach file" onClick={() => document.getElementById('acn-file-input').click()}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -536,9 +516,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
             </svg>
           </button>
         </div>
-      </div>
 
-      {carousel && <Carousel data={carousel} onCta={handleCarouselCta} onClose={() => setCarousel(null)} />}
+      </div>
     </>
   );
 }
