@@ -159,8 +159,7 @@ footer span{font-size:11px;color:#B0A0C8;}
 .tooltip-arrow{position:absolute;bottom:-6px;right:20px;width:10px;height:10px;background:#fff;border-right:1px solid #EDE5F8;border-bottom:1px solid #EDE5F8;transform:rotate(45deg);}
 
 /* ── Carousel ── */
-.acn-carousel-container{position:fixed;bottom:24px;right:430px;width:540px;z-index:9998;}
-.acn-carousel-wrap{background:#fff;border:1px solid #EDE5F8;border-top:3px solid #A100FF;border-radius:16px;overflow:hidden;margin-top:4px;}
+.acn-carousel-wrap{position:absolute;bottom:60px;left:0;right:0;background:#fff;border:1px solid #EDE5F8;border-top:3px solid #A100FF;border-radius:0;overflow-y:auto;max-height:65%;z-index:20;box-shadow:0 -4px 16px rgba(161,0,255,.10);}
 .acn-carousel-header{padding:14px 16px;border-bottom:1px solid #EDE5F8;display:flex;justify-content:space-between;align-items:flex-start;}
 .acn-carousel-title{font-size:14px;font-weight:700;color:#140025;}
 .acn-carousel-sub{font-size:11px;color:#6B5B8A;margin-top:2px;}
