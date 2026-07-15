@@ -6,7 +6,6 @@ import Carousel from './Carousel';
 
 function stripMarkdown(text) {
   return text
-    .replace(/```[\s\S]*?```/g, '')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/\*([^*]+)\*/g, '$1')
     .replace(/^#{1,3}\s+/gm, '')
@@ -163,9 +162,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         const QK = "['\"]" + key + "['\"]";
         let m;
         m = str.match(new RegExp(QK + '\\s*[=:]\\s*"([^"]*)"'));  if (m) return m[1];
-        m = str.match(new RegExp(QK + "\\s*[=:]\\s*'(.*?)',\\s*'(?:description|utterance|summary)'"));  if (m) return m[1];
         m = str.match(new RegExp(QK + "\\s*[=:]\\s*'([^']*)'"));  if (m) return m[1];
-        m = str.match(new RegExp('\\b' + key + "\\s*=\\s*'(.*?)',\\s*'(?:description|utterance|summary)'")); if (m) return m[1];
         m = str.match(new RegExp('\\b' + key + "\\s*=\\s*'([^']*)'"));  if (m) return m[1];
         m = str.match(new RegExp('\\b' + key + '\\s*=\\s*"([^"]*)"')); if (m) return m[1];
         return null;
