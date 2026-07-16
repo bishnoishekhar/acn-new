@@ -49,7 +49,6 @@ const isFH = (h) => {
 export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const [messages, setMessages] = useState([]);
   const [inputVal, setInputVal] = useState('');
-  const [carousel, setCarousel] = useState(null);
   const [activeForm, setActiveForm] = useState(null);
   const [voiceActive, setVoiceActive] = useState(false);
   const [sessionStarted, setSessionStarted] = useState(false);
@@ -383,12 +382,6 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     gecxSend('I am uploading a file: ' + file.name);
     e.target.value = '';
   }, [addUser, showTyping]);
-
-  const handleCarouselCta = useCallback((ctaValue) => {
-    setCarousel(null);
-    showTyping();
-    gecxSend(ctaValue);
-  }, [showTyping]);
 
   return (
     <>
