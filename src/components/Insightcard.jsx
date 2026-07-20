@@ -17,10 +17,9 @@ export default function InsightCard({ payload, onCta }) {
       background: cfg.bg,
       border: `1px solid ${cfg.border}`,
       borderRadius: '4px 14px 14px 14px',
-      overflow: 'hidden',
       fontSize: 13,
-      width: '100%',
-      maxWidth: '98%',
+      maxWidth: '86%',
+      alignSelf: 'flex-start',
     }}>
 
       {/* Header */}
@@ -60,21 +59,24 @@ export default function InsightCard({ payload, onCta }) {
       {/* Metrics */}
       {payload.metrics?.length > 0 && (
         <div style={{ display: 'flex', gap: 5, padding: '8px 13px' }}>
-          {payload.metrics.map((m, i) => (
-            <div key={i} style={{
-              flex: 1,
-              background: 'rgba(255,255,255,0.7)',
-              border: `1px solid ${cfg.border}`,
-              borderRadius: 8, padding: '6px 8px',
-            }}>
-              <div style={{ fontSize: 9, color: cfg.accent, marginBottom: 2 }}>{m.label}</div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: '#000' }}>
-                {m.value}
-                {m.trend === 'up' && <span style={{ color: '#DC2626', fontSize: 10, marginLeft: 2 }}>↑</span>}
-                {m.trend === 'down' && <span style={{ color: '#059669', fontSize: 10, marginLeft: 2 }}>↓</span>}
+          {payload.metrics.map((m, i) => {
+            // Handle both {label,value,trend} and {key:value} formats
+            const isKV = !m.label && typeof m === 'object';
+            const [label, value] = isKV ? Object.entries(m)[0] : [m.label, m.value];
+            return (
+              <div key={i} style={{
+                flex: 1, background: 'rgba(255,255,255,0.7)',
+                border: `1px solid ${cfg.border}`, borderRadius: 8, padding: '6px 8px',
+              }}>
+                <div style={{ fontSize: 9, color: cfg.accent, marginBottom: 2, textTransform: 'uppercase' }}>{label}</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#000' }}>
+                  {value}
+                  {m.trend === 'up' && <span style={{ color: '#DC2626', fontSize: 10, marginLeft: 2 }}>↑</span>}
+                  {m.trend === 'down' && <span style={{ color: '#059669', fontSize: 10, marginLeft: 2 }}>↓</span>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

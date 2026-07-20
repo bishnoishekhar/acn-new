@@ -7,6 +7,28 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400&display=swap" rel="stylesheet">
+  <script>
+    /* Must run before chat-messenger.js (which is deferred) so GECX captures our
+       patched fetch. Fires 'acn-session-data' on window for ChatWindow.jsx to handle. */
+    (function () {
+      var _origFetch = window.fetch;
+      window.fetch = function () {
+        var p = _origFetch.apply(this, arguments);
+        var raw = arguments[0];
+        var url = (raw && typeof raw === 'object' && raw.url) ? raw.url : String(raw || '');
+        if (url.indexOf('runSession') !== -1) {
+          p.then(function (r) {
+            r.clone().json().then(function (d) {
+              if (d && d.messages) {
+                window.dispatchEvent(new CustomEvent('acn-session-data', { detail: d }));
+              }
+            }).catch(function () {});
+          }).catch(function () {});
+        }
+        return p;
+      };
+    })();
+  </script>
   <script defer src="https://www.gstatic.com/chat-messenger/sdk/prod/v1.16/chat-messenger.js"></script>
   <link rel="stylesheet" href="https://www.gstatic.com/chat-messenger/sdk/prod/v1.16/themes/chat-messenger-default.css">
   <link rel="stylesheet" href="https://www.gstatic.com/chat-messenger/sdk/prod/v1.16/themes/chat-messenger-layout.css">

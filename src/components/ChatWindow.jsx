@@ -61,6 +61,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const pendingHeadingRef = useRef(null);
   const pendingSubtitleRef = useRef(null);
   const comboCreatedRef = useRef(false);
+  const lastProcessedRef = useRef({ time: 0, sig: '' });
 
   const scrollToBottom = useCallback(() => {
     const snap = () => {
@@ -190,7 +191,9 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       if (!pending) {
         const last = prev[prev.length - 1];
         if (last && last.type === 'combo') {
-          return [...prev.slice(0, -1), { ...last, actions: mergeActions(last.actions, actions) }];
+          const merged = { ...last, actions: mergeActions(last.actions, actions) };
+          if (!merged.heading && summary) merged.heading = summary;
+          return [...prev.slice(0, -1), merged];
         }
       }
       if (pending) {
@@ -217,16 +220,34 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   }, []);
 
   const processOutputs = useCallback((outputs) => {
+    const now = Date.now();
+    const sig = JSON.stringify(outputs);
+    if (now - lastProcessedRef.current.time < 800 && sig === lastProcessedRef.current.sig) return;
+    lastProcessedRef.current = { time: now, sig };
+
+    // Resolve widget type by name first, then by structure.
+    // GECX never adds name to payloads — we must detect by field shape.
+    const resolvePayloadName = (p) => {
+      if (!p || typeof p !== 'object') return null;
+      if (p.name) return p.name;
+      if (p.type === 'quick_actions') return 'quick_actions';
+      if (Array.isArray(p.actions) && p.actions.length > 0 && p.actions[0]?.utterance !== undefined) return 'quick_actions';
+      if (p.insight_type != null || p.headline != null) return 'acn-insight-card';
+      if (Array.isArray(p.payments) || Array.isArray(p.payees)) return 'acn-payment-carousel';
+      if (Array.isArray(p.fields) && p.fields.length > 0) return 'acn-form-input';
+      if (p.receipt_id != null || p.reference_number != null) return 'acn-payment-receipt';
+      if (p.min_amount != null || p.max_amount != null) return 'acn-amount-input';
+      return null;
+    };
+
+    const isKnownPayload = (p) => {
+      const n = resolvePayloadName(p);
+      return n === 'quick_actions' || n === 'acn-form-input' || n === 'acn-payment-carousel' ||
+        n === 'acn-payee-selector' || n === 'acn-payment-receipt' || n === 'acn-insight-card' || n === 'acn-amount-input';
+    };
+
     const hasVisible = outputs.some((o) => {
-      if (o.payload) {
-        return o.payload.type === 'quick_actions' ||
-               o.payload.name === 'acn-form-input' ||
-               o.payload.name === 'acn-payment-carousel' ||
-               o.payload.name === 'acn-payee-selector' ||
-               o.payload.name === 'acn-payment-receipt' ||
-               o.payload.name === 'acn-insight-card' ||
-               o.payload.name === 'acn-amount-input';
-      }
+      if (o.payload) return isKnownPayload(o.payload);
       if (!o.text) return false;
       const t = o.text;
       if (t.includes('narration_checkpoint')) return false;
@@ -236,15 +257,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
     if (!hasVisible) return;
 
-    const hasFinalWidget = outputs.some(o => o.payload && (
-      o.payload.type === 'quick_actions' ||
-      o.payload.name === 'acn-form-input' ||
-      o.payload.name === 'acn-payment-carousel' ||
-      o.payload.name === 'acn-payee-selector' ||
-      o.payload.name === 'acn-payment-receipt' ||
-      o.payload.name === 'acn-insight-card' ||
-      o.payload.name === 'acn-amount-input'
-    ));
+    const hasFinalWidget = outputs.some(o => o.payload && isKnownPayload(o.payload));
     const hasOnlyText = outputs.every(o => o.text && !o.payload);
 
     if (hasFinalWidget || hasOnlyText) {
@@ -289,31 +302,123 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       addBot(text);
     });
 
-    // Pass 2: payload
+    // Pass 2: payload — route by resolved name (works with or without name field)
     outputs.forEach((output) => {
       if (!output.payload) return;
       const p = output.payload;
-      if (p.type === 'quick_actions' && p.actions) showCombo(p.actions, p.summary);
-      if (p.name === 'acn-form-input' && p.fields) {
+      const pname = resolvePayloadName(p);
+      if (pname === 'quick_actions' && p.actions) showCombo(p.actions, p.summary);
+      if (pname === 'acn-form-input' && p.fields) {
         setActiveForm({ payload: p, id: uid() });
         setMessages((prev) => prev.map((m) => m.type === 'combo' ? { ...m, compact: true } : m));
       }
-      if (p.name === 'acn-payment-carousel' || p.name === 'acn-payee-selector') {
-        setMessages((prev) => [...prev, { type: 'carousel', payload: p, id: uid() }]);
+      if (pname === 'acn-payment-carousel' || pname === 'acn-payee-selector') {
+        setMessages((prev) => {
+          const lastC = [...prev].reverse().find((m) => m.type === 'carousel');
+          if (lastC && p.title && lastC.payload?.title === p.title) return prev;
+          return [...prev, { type: 'carousel', payload: p, id: uid() }];
+        });
       }
-      if (p.name === 'acn-insight-card') {
-        setMessages((prev) => [...prev, { type: 'insight', payload: p, id: uid() }]);
+      if (pname === 'acn-insight-card') {
+        setMessages((prev) => {
+          const lastI = [...prev].reverse().find((m) => m.type === 'insight');
+          if (lastI && p.headline && lastI.payload?.headline === p.headline) return prev;
+          return [...prev, { type: 'insight', payload: p, id: uid() }];
+        });
       }
-      if (p.name === 'acn-amount-input') {
+      if (pname === 'acn-amount-input') {
         setMessages((prev) => [...prev, { type: 'amount', payload: p, id: uid() }]);
       }
-      if (p.name === 'acn-payment-receipt') {
+      if (pname === 'acn-payment-receipt') {
         setMessages((prev) => [...prev, { type: 'receipt', payload: p, id: uid() }]);
       }
     });
   }, [removeTyping, clearTypingBubble, addBot, showCombo, parseToolCode, extractSayLines]);
 
-  useEffect(() => { setResponseHandler(processOutputs); }, [processOutputs]);
+  const processOutputsRef = useRef(processOutputs);
+  useEffect(() => { processOutputsRef.current = processOutputs; }, [processOutputs]);
+
+  // Wire gecx.js native events (chat-response-received) to processOutputs via a
+  // stable ref. This handles the initial welcome menu and simple single-widget turns.
+  // Multi-widget turns (carousel + insight + quick_actions) are handled by the
+  // acn-session-data listener below, which resets the dedup so it always supersedes.
+  useEffect(() => { setResponseHandler((outs) => processOutputsRef.current(outs)); }, []);
+
+  // Listen for runSession data dispatched by the pre-GECX fetch interceptor in index.html.
+  // GECX captures window.fetch at SDK bundle load time (before React mounts), so patching
+  // window.fetch inside React effects never intercepts GECX's own API calls. The inline
+  // script in index.html runs before chat-messenger.js loads, putting it in GECX's call
+  // chain and dispatching 'acn-session-data' events that we receive here.
+  useEffect(() => {
+    const handler = (e) => {
+      const data = e.detail;
+      if (!data?.messages) return;
+      const outputs = [];
+
+      // Pass 1: session-scoped tool registry — toolCalls and chunk.payloads land
+      // in different messages, so per-message scoping loses the widget name.
+      const toolMeta = {};
+      const widgetOrder = [];
+      for (const msg of data.messages) {
+        if (msg.role === 'user') continue;
+        for (const chunk of msg.chunks || []) {
+          const tc = chunk.toolCall;
+          const tr = chunk.toolResponse;
+          if (tc?.id) {
+            if (!toolMeta[tc.id]) toolMeta[tc.id] = {};
+            if (tc.displayName) toolMeta[tc.id].name = tc.displayName;
+            if (tc.args?.summary) toolMeta[tc.id].summary = tc.args.summary;
+            if (tc.args?.payload) toolMeta[tc.id].argsPayload = tc.args.payload;
+            if (tc.args?.payload) widgetOrder.push(tc.id);
+          }
+          if (tr?.id) {
+            if (!toolMeta[tr.id]) toolMeta[tr.id] = {};
+            if (tr.displayName) toolMeta[tr.id].name = tr.displayName;
+            if (tr.response?.summary) toolMeta[tr.id].summary = tr.response.summary;
+          }
+        }
+      }
+
+      // Pass 2: text and chunk.payloads in document order, annotated with widget name.
+      let payloadIdx = 0;
+      for (const msg of data.messages) {
+        if (msg.role === 'user') continue;
+        for (const chunk of msg.chunks || []) {
+          if (chunk.text) outputs.push({ text: chunk.text });
+          if (chunk.payload) {
+            const meta = toolMeta[widgetOrder[payloadIdx]];
+            const withName = meta?.name ? { ...chunk.payload, name: meta.name } : chunk.payload;
+            const annotated = (meta?.summary && !withName.summary) ? { ...withName, summary: meta.summary } : withName;
+            outputs.push({ payload: annotated });
+            payloadIdx++;
+          }
+        }
+      }
+
+      // Pass 3: widgets that never produce chunk.payload (e.g. quick_actions).
+      for (let i = payloadIdx; i < widgetOrder.length; i++) {
+        const meta = toolMeta[widgetOrder[i]];
+        if (meta?.argsPayload && meta?.name) {
+          const withName = { ...meta.argsPayload, name: meta.name };
+          const annotated = meta.summary && !withName.summary ? { ...withName, summary: meta.summary } : withName;
+          outputs.push({ payload: annotated });
+        }
+      }
+
+      if (outputs.length) {
+        // Always let acn-session-data override an earlier GECX native event.
+        // GECX fires chat-response-received synchronously before our JSON parse
+        // completes, potentially setting the dedup sig with a partial output list.
+        // Resetting here ensures the full output set (carousel+insight+qa) goes through.
+        lastProcessedRef.current = { time: 0, sig: '' };
+        processOutputsRef.current(outputs);
+      }
+    };
+
+    window.addEventListener('acn-session-data', handler);
+    return () => window.removeEventListener('acn-session-data', handler);
+  }, []);
+
   useEffect(() => { scrollToBottom(); }, [messages, scrollToBottom]);
 
   useEffect(() => {
@@ -412,7 +517,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
       <div className={`acn-chat-window${isOpen ? '' : ' closed'}`}>
         <div className="acn-chat-header">
-          <div className="acn-chat-avatar">A</div>
+          <div className="acn-chat-avatar">AB</div>
           <div style={{ flex: 1 }}>
             <div className="acn-chat-title">ACN Bank AI</div>
             <div className="acn-chat-status">
