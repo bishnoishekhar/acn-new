@@ -20,8 +20,8 @@ export default function AmountInput({ payload, onSubmit }) {
       background: '#fff', border: '1px solid #E8E8E8',
       borderTop: '3px solid #A100FF',
       borderRadius: '4px 14px 14px 14px',
-      overflow: 'hidden', fontSize: 13,
-      maxWidth: '98%',
+      fontSize: 13,
+      maxWidth: '86%',
     }}>
       {(title || subtitle) && (
         <div style={{ padding: '10px 13px 8px', borderBottom: '1px solid #EBEBEB' }}>
