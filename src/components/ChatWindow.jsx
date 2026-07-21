@@ -95,6 +95,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const pendingSubtitleRef = useRef(null);
   const comboCreatedRef    = useRef(false);
   const lastProcessedRef   = useRef({ time: 0, sig: '' });
+  const lastCarouselTitleRef = useRef(null);
 
   const scrollToBottom = useCallback(() => {
     const snap = () => {
@@ -309,6 +310,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
       if (pname === 'acn-payment-carousel' || pname === 'acn-payee-selector') {
         LOG('carousel items:', (p.payments || p.payees || []).length);
+        if (p.title) lastCarouselTitleRef.current = p.title;
         setMessages(prev => {
           const lastC = [...prev].reverse().find(m => m.type === 'carousel');
           if (lastC && p.title && lastC.payload?.title === p.title) { WARN('carousel dedup:', p.title); return prev; }
@@ -358,6 +360,41 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
 
       if (!pname) WARN(`Pass2[${idx}] UNRECOGNISED:`, JSON.stringify(p).slice(0,200));
     });
+
+    // Auto-inject quick_actions when an insight card arrived but the agent stopped before calling quick_actions
+    const hasInsightInBatch = outputs.some(o => o.payload && resolvePayloadName(o.payload) === 'acn-insight-card');
+    const hasQuickActionsInBatch = outputs.some(o => {
+      if (o.payload && resolvePayloadName(o.payload) === 'quick_actions') return true;
+      if (o.text && parseToolCode(o.text)) return true;
+      if (o.text && o.text.includes('quick_actions') && o.text.includes('content:')) return true;
+      return false;
+    });
+
+    if (hasInsightInBatch && !hasQuickActionsInBatch) {
+      const insightPayload = outputs.find(o => o.payload && resolvePayloadName(o.payload) === 'acn-insight-card')?.payload;
+      const isTransactionFlow = lastCarouselTitleRef.current === 'Recent Transactions';
+      LOG('auto-inject quick_actions after insight (flow:', isTransactionFlow ? 'transaction' : 'account-balance', ')');
+
+      const actions = [
+        insightPayload?.cta_label && insightPayload?.cta_value
+          ? { content: insightPayload.cta_label, description: 'Recommended for you.', utterance: insightPayload.cta_value }
+          : null,
+        isTransactionFlow
+          ? { content: '🔄 Different period', description: 'View a different date range.', utterance: 'Show transactions for a different period' }
+          : { content: '📋 View transactions', description: 'See recent activity.', utterance: 'Show my recent transactions' },
+        { content: '💸 Transfer money', description: 'Send money to a beneficiary.', utterance: 'I want to transfer money' },
+        !isTransactionFlow
+          ? { content: '🧾 Pay a bill', description: 'Pay one of your saved bills.', utterance: 'I want to pay a bill' }
+          : null,
+        { content: '✅ Done', description: 'Return to main menu.', utterance: 'That is all for now' },
+      ].filter(Boolean);
+
+      setMessages(prev => {
+        const last = prev[prev.length - 1];
+        if (last?.type === 'combo') return prev; // already have a menu
+        return [...prev, { type: 'combo', heading: 'What would you like to do next?', actions, id: uid(), compact: false }];
+      });
+    }
   }, [removeTyping, clearTypingBubble, addBot, showCombo, parseToolCode, extractSayLines]);
 
   const processOutputsRef = useRef(processOutputs);
