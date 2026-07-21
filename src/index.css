@@ -80,7 +80,7 @@ footer span{font-size:11px;color:#B0A0C8;}
 
 .acn-chat-window{
   position:fixed;bottom:24px;right:24px;
-  width:420px;height:76vh;max-height:740px;min-height:500px;
+  width:860px;height:82vh;max-height:820px;min-height:560px;
   background:#fff;border-radius:16px;
   box-shadow:0 8px 32px rgba(0,0,0,.12),0 2px 8px rgba(0,0,0,.06);
   border:1px solid #E8E8E8;
