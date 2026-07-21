@@ -63,8 +63,22 @@ export function installFetchInterceptor() {
     if (url && url.toString().includes('runSession')) {
       p.then((r) => {
         r.clone().json().then((data) => {
-          if (_onResponse && data?.outputs) {
+          if (!_onResponse) return;
+
+          // Primary path: data.outputs
+          if (data?.outputs?.length) {
             _onResponse(data.outputs);
+          }
+
+          // Secondary path: Dialogflow CX queryResult.responseMessages
+          // GECX may put widget payloads here when they're not in data.outputs
+          const msgs = data?.queryResult?.responseMessages || [];
+          const widgetOutputs = [];
+          for (const msg of msgs) {
+            if (msg.payload) widgetOutputs.push({ payload: msg.payload });
+          }
+          if (widgetOutputs.length) {
+            _onResponse(widgetOutputs);
           }
         }).catch(() => {});
       }).catch(() => {});
