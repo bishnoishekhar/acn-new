@@ -95,7 +95,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
   const pendingSubtitleRef = useRef(null);
   const comboCreatedRef    = useRef(false);
   const lastProcessedRef   = useRef({ time: 0, sig: '' });
-  const lastCarouselTitleRef = useRef(null);
+  const lastCarouselTitleRef  = useRef(null);
+  const silentTriggerRef      = useRef(false); // prevents loop when auto-fetching insight+menu
 
   const scrollToBottom = useCallback(() => {
     const snap = () => {
@@ -200,6 +201,8 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     pendingSubtitleRef.current = null;
     comboCreatedRef.current    = true;
 
+    const actionsKey = (acts) => acts.map(a => (a.utterance || a.content || '')).sort().join('|');
+
     const mergeActions = (existing, incoming) => {
       const key  = a => `${a.content||''}|${a.utterance||''}`;
       const seen = new Set(existing.map(key));
@@ -207,6 +210,11 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     };
 
     setMessages(prev => {
+      // Prevent duplicate combo cards: if any existing combo has the same actions, skip
+      const newKey = actionsKey(actions);
+      const hasDupe = prev.some(m => m.type === 'combo' && actionsKey(m.actions) === newKey);
+      if (hasDupe) { WARN('showCombo: duplicate combo skipped'); return prev; }
+
       if (forcedHeading) {
         return [...prev, { type:'combo', heading:forcedHeading, subtitle:forcedSubtitle, actions, id:uid(), compact:isFH(forcedHeading) }];
       }
@@ -291,6 +299,11 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         if (acts.length > 0) { showCombo(acts, sm?.[1]?.trim() ?? 'What can I help you with?'); return; }
       }
       if (text.includes('narration_checkpoint') || text.includes('tool_code:')) return;
+      // Filter GECX internal artifacts: JSON/template fragments with triple-braces or JSON start chars
+      if (text.includes('}}}') || /^\s*[{,]"/.test(text)) {
+        WARN(`Pass1[${idx}] GECX artifact filtered:`, text.slice(0, 60));
+        return;
+      }
       addBot(text);
     });
 
@@ -301,7 +314,11 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       const pname = resolvePayloadName(p);
       LOG(`Pass2[${idx}] payload:`, pname);
 
-      if (pname === 'quick_actions' && p.actions) showCombo(p.actions, p.summary);
+      if (pname === 'quick_actions' && p.actions) {
+        // If no pending heading yet but we have a summary, promote it so it reliably becomes the heading
+        if (p.summary && !pendingHeadingRef.current) pendingHeadingRef.current = p.summary;
+        showCombo(p.actions, p.summary);
+      }
 
       if (pname === 'acn-form-input' && p.fields) {
         setActiveForm({ payload: p, id: uid() });
@@ -361,7 +378,7 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
       if (!pname) WARN(`Pass2[${idx}] UNRECOGNISED:`, JSON.stringify(p).slice(0,200));
     });
 
-    // Auto-inject quick_actions when an insight card arrived but the agent stopped before calling quick_actions
+    // Auto-inject quick_actions when insight arrived but agent stopped before calling quick_actions
     const hasInsightInBatch = outputs.some(o => o.payload && resolvePayloadName(o.payload) === 'acn-insight-card');
     const hasQuickActionsInBatch = outputs.some(o => {
       if (o.payload && resolvePayloadName(o.payload) === 'quick_actions') return true;
@@ -389,13 +406,46 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
         { content: '✅ Done', description: 'Return to main menu.', utterance: 'That is all for now' },
       ].filter(Boolean);
 
-      setMessages(prev => {
-        const last = prev[prev.length - 1];
-        if (last?.type === 'combo') return prev; // already have a menu
-        return [...prev, { type: 'combo', heading: 'What would you like to do next?', actions, id: uid(), compact: false }];
-      });
+      // Use setTimeout so React has committed all state updates before we check for duplicates
+      setTimeout(() => {
+        setMessages(prev => {
+          // Find the last insight and check if a combo already follows it
+          let lastInsightIdx = -1;
+          for (let i = prev.length - 1; i >= 0; i--) {
+            if (prev[i].type === 'insight') { lastInsightIdx = i; break; }
+          }
+          if (lastInsightIdx === -1) return prev; // no insight found
+          const hasMenuAfterInsight = prev.slice(lastInsightIdx + 1).some(m => m.type === 'combo');
+          if (hasMenuAfterInsight) return prev; // menu already exists after this insight
+          return [...prev, { type: 'combo', heading: 'What would you like to do next?', actions, id: uid(), compact: false }];
+        });
+      }, 150);
     }
-  }, [removeTyping, clearTypingBubble, addBot, showCombo, parseToolCode, extractSayLines]);
+
+    // Clear the silent-trigger guard once insight arrives so the guard resets for the next session
+    if (hasInsightInBatch) {
+      silentTriggerRef.current = false;
+    }
+
+    // Auto-trigger: agent stopped after transactions carousel without showing insight
+    // Silently send 'acn_get_insight' so the agent returns only insight + menu (no extra carousel)
+    const hasTransactionCarouselInBatch = outputs.some(o =>
+      o.payload &&
+      resolvePayloadName(o.payload) === 'acn-payment-carousel' &&
+      o.payload?.title === 'Recent Transactions'
+    );
+
+    if (hasTransactionCarouselInBatch && !hasInsightInBatch && !hasQuickActionsInBatch) {
+      if (!silentTriggerRef.current) {
+        silentTriggerRef.current = true;
+        LOG('auto-trigger: transactions carousel with no insight — silently fetching insight+menu');
+        setTimeout(() => {
+          showTyping();
+          gecxSend('acn_get_insight');
+        }, 300);
+      }
+    }
+  }, [removeTyping, clearTypingBubble, addBot, showCombo, parseToolCode, extractSayLines, showTyping]);
 
   const processOutputsRef = useRef(processOutputs);
   useEffect(() => { processOutputsRef.current = processOutputs; }, [processOutputs]);
@@ -509,9 +559,9 @@ export default function ChatWindow({ isOpen, onClose, onReset, intent }) {
     setTimeout(() => inputRef.current?.focus(), 300);
   }, [isOpen]); // eslint-disable-line
 
-  const handleTileSelect = useCallback((action, comboId) => {
+  const handleTileSelect = useCallback((action, _comboId) => {
     LOG('tile selected:', action.content, '→', action.utterance);
-    setMessages(prev => prev.filter(m => m.id !== comboId));
+    setMessages(prev => prev.filter(m => m.type !== 'combo'));
     addUser(action.content || action.utterance);
     showTyping();
     gecxSend(action.utterance || action.content);

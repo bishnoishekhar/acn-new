@@ -162,27 +162,39 @@ footer span{font-size:11px;color:#B0A0C8;}
   border-radius:4px 14px 14px 14px;
   max-width:96%;align-self:flex-start;overflow:hidden;
 }
-.acn-combo-text{padding:12px 14px 6px;font-size:13.5px;font-weight:600;color:#000;line-height:1.55;}
-.acn-combo-subtitle{padding:0 14px 8px;font-size:12px;font-weight:400;color:#666;line-height:1.5;}
-.acn-combo-tiles{padding:4px 10px 10px;display:flex;flex-direction:row;flex-wrap:wrap;gap:6px;}
+.acn-combo-text{padding:14px 16px 4px;font-size:14px;font-weight:700;color:#000;line-height:1.5;}
+.acn-combo-subtitle{padding:2px 16px 10px;font-size:12.5px;font-weight:400;color:#555;line-height:1.5;}
+.acn-combo-tiles{display:flex;flex-direction:column;padding:4px 0 0;}
 
 .acn-tile{
-  background:#fff;border:1px solid #EBEBEB;border-radius:20px;
-  padding:7px 14px;cursor:pointer;
-  display:flex;align-items:center;gap:7px;
-  width:auto;text-align:left;
-  transition:border-color .15s,background .15s,transform .1s;
+  background:#fff;border:none;border-top:1px solid #F0EDF8;
+  padding:13px 16px;cursor:pointer;
+  display:flex;align-items:center;gap:12px;
+  width:100%;text-align:left;
+  transition:background .15s;
 }
-.acn-tile:hover{border-color:#A100FF;background:#FDF8FF;transform:translateY(-1px);}
-.acn-tile:active{transform:translateY(0);}
-.acn-tile-icon{font-size:14px;line-height:1;flex-shrink:0;}
-.acn-tile-title{font-size:13px;font-weight:600;color:#000 !important;line-height:1.3;white-space:nowrap;}
+.acn-tile.last{border-bottom:none;}
+.acn-tile:hover{background:#FAF7FF;}
+.acn-tile:active{background:#F3EEF9;}
+.acn-tile-icon-wrap{
+  width:36px;height:36px;border-radius:50%;
+  background:#F5F1FC;flex-shrink:0;
+  display:flex;align-items:center;justify-content:center;
+}
+.acn-tile-icon{font-size:17px;line-height:1;}
+.acn-tile-body{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0;}
+.acn-tile-title{font-size:13.5px;font-weight:700;color:#000;line-height:1.3;}
+.acn-tile-desc{font-size:12px;font-weight:400;color:#666;line-height:1.3;}
+.acn-tile-chevron{font-size:20px;color:#999;flex-shrink:0;line-height:1;}
 
 /* ── Compact tiles ── */
 .acn-combo-card.compact .acn-combo-text{padding:10px 13px 4px;font-size:13px;}
-.acn-combo-card.compact .acn-combo-tiles{padding:2px 8px 8px;gap:5px;}
-.acn-combo-card.compact .acn-tile{padding:6px 12px;border-radius:16px;}
+.acn-combo-card.compact .acn-combo-tiles{padding:2px 0 0;}
+.acn-combo-card.compact .acn-tile{padding:10px 13px;gap:10px;}
+.acn-combo-card.compact .acn-tile-icon-wrap{width:30px;height:30px;}
+.acn-combo-card.compact .acn-tile-icon{font-size:15px;}
 .acn-combo-card.compact .acn-tile-title{font-size:12.5px;}
+.acn-combo-card.compact .acn-tile-desc{font-size:11.5px;}
 
 /* ── Nudge card (Tier 2 contextual intelligence) ── */
 .acn-nudge-card{
